@@ -1,0 +1,37 @@
+---
+alwaysApply: false
+---
+# TypeScript Coding Style
+
+## 네이밍
+- 클래스/타입/인터페이스/Enum: PascalCase (`UserService`, `MapMarkerProps`)
+- 함수/메서드/변수: camelCase (`fetchUserById`, `isMapReady`)
+- 상수: ALL_CAPS (`DEFAULT_TIMEOUT_MS`, `MAX_RETRY_COUNT`)
+
+## 코드 품질
+- 하드코딩 값은 의미 있는 상수로 분리한다.
+- 중복 로직은 유틸 함수 또는 훅으로 추출한다.
+- `any` 사용을 피하고, 필요한 경우 구체 타입을 선언한다.
+- 의도를 이해하지 못했을 때에는 반드시 확인 절차를 거친다.
+
+## 보안
+- 사용자 입력은 반드시 검증한다 (길이, 형식, 허용값).
+- DOM 출력 전 문자열을 이스케이프/정제하여 XSS를 방지한다.
+- 비밀값(API 키, 토큰)은 코드에 하드코딩하지 않고 환경변수로 관리한다.
+- 관리자페이지 경우 반드시 auth 검증을 거친다.
+
+## 예시
+```typescript
+// ❌ BAD
+const timeout = 3000;
+function GetUser(id: any) {
+  return fetch(`/api/user?id=${id}`);
+}
+
+// ✅ GOOD
+const DEFAULT_TIMEOUT_MS = 3000;
+function getUserById(userId: string) {
+  const safeUserId = encodeURIComponent(userId.trim());
+  return fetch(`/api/user?id=${safeUserId}`, { method: "GET" });
+}
+```
