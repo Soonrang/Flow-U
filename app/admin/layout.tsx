@@ -3,16 +3,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Building2, ClipboardList, Users, UserCircle, LogOut } from 'lucide-react';
+import { Building2, Users, UserCircle, LogOut } from 'lucide-react';
 import { Toaster } from 'sonner';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  // 관리자 사이드바 메뉴 구성
+  // 💡 수정 1: 리스트와 신청 관리가 탭으로 합쳐졌으므로 메뉴를 '보호소 관리' 하나로 통합!
   const adminMenus = [
-    { name: '보호소 리스트', href: '/admin/shelters', icon: Building2 },
-    { name: '보호소 신청 관리', href: '/admin/requests', icon: ClipboardList },
+    { name: '보호소 관리', href: '/admin/shelters', icon: Building2 },
     { name: '관리자 목록', href: '/admin/users', icon: Users },
     { name: '내 프로필', href: '/admin/profile', icon: UserCircle },
   ];
@@ -20,9 +19,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="flex min-h-screen bg-gray-50">
       <Toaster richColors position="top-right" />
-      {/* ⬅️ 좌측 사이드바 */}
-      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
-        <div className="h-16 flex items-center px-6 border-b border-gray-200">
+      
+      {/* 💡 수정 2: 사이드바 반응형 - 모바일에서는 숨기고(hidden) 태블릿(md) 이상에서만 보임(flex) */}
+      <aside className="hidden md:flex w-64 bg-white border-r border-gray-200 flex-col">
+        <div className="h-14 flex items-center px-6 border-b border-gray-200">
           <Link href="/admin/shelters" className="text-xl font-bold text-blue-600">
             FlowU Admin
           </Link>
@@ -60,9 +60,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </aside>
 
-      {/* ➡️ 우측 메인 콘텐츠 영역 (여기에 각 페이지 내용이 렌더링됩니다) */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="p-8">
+      {/* 💡 수정 3: w-full 추가 및 이중 여백(p-8) 제거 */}
+      <main className="flex-1 overflow-y-auto w-full">
+        <div className="w-full">
           {children}
         </div>
       </main>

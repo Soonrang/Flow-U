@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../src/utils/supabase'; // 이전 단계에서 만든 supabase 클라이언트
+import { supabase } from '../lib/supabase'; // 이전 단계에서 만든 supabase 클라이언트
 
 export default function Home() {
   const router = useRouter();

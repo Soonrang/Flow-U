@@ -75,7 +75,10 @@ alwaysApply: false
 * `applicant_id`: VARCHAR(100) (신청자 ID)
 * `created_at`: TIMESTAMP (생성 일시)
 * `updated_at`: TIMESTAMPTZ (변경 일시)
-* `applied_at`: TIMESTAMPTZ (신청 일시)
+* `applied_at`: TIMESTAMPTZ ( 일시)
+* `del_yn`: CHAR(1) (삭제 여부, 기본값 'N' - 논리적 삭제용)
+* `animal_type`: VARCHAR(2) (동물 분류: 1(강아지) 2(고양이) 3(혼합) )
+* `operating_hours`: VARCHAR(100) (ex. 운영시간 15:30 - 17:00 과 같이 저장)
 
 ### 4.2. 게시글 및 공지사항 테이블 (`posts`)
 * `id`: BIGINT (기본키)
