@@ -2,7 +2,7 @@
 import type { Config } from "tailwindcss";
 
 const config = {
-  darkMode: ["class"],
+  darkMode: "class",
   content: [
     // 💡 최상위 app, components 폴더 경로를 정확히 추가했습니다!
     './app/**/*.{ts,tsx,js,jsx,mdx}',
