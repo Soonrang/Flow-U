@@ -3,7 +3,7 @@
 
 import { ChangeEvent, FormEvent, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Plus, MapPin, Phone, Clock, PawPrint, AlertCircle, User, LogOut } from 'lucide-react';
+import { Search, Plus, MapPin, Phone, Clock, PawPrint, AlertCircle, User, LogOut, X } from 'lucide-react';
 import Image from 'next/image';
 
 const AVATAR_PATHS = Array.from({ length: 10 }, (_, i) => `/avatars/avatar-${i + 1}.PNG`);
@@ -56,7 +56,7 @@ const ANIMAL_BADGE_CLASS: Record<string, string> = {
 const ANIMAL_LABEL: Record<string, string> = {
   1: "🐶 강아지",
   2: "🐱 고양이",
-  3: "🐾 혼합",
+  3: "🐾 기타",
 };
 
 export default function MapPage() {
@@ -148,11 +148,18 @@ export default function MapPage() {
 
   const handleRegisterClick = () => {
     if (user) {
+      setShelterRequestForm({ ...INITIAL_SHELTER_REQUEST_FORM, applicantId: nickname.trim() });
       setIsShelterRequestModalOpen(true);
     } else {
       setIsLoginModalOpen(true);
     }
   };
+
+  useEffect(() => {
+    if (isShelterRequestModalOpen) {
+      setShelterRequestForm(prev => ({ ...prev, applicantId: nickname.trim() }));
+    }
+  }, [isShelterRequestModalOpen, nickname]);
 
   // 🚀 수정됨: 억지로 넣었던 scopes 속성을 제거 (카카오 디벨로퍼스 설정으로 해결)
   const handleKakaoLogin = async () => {
@@ -170,6 +177,7 @@ export default function MapPage() {
 
   const handleShelterRequestInputChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    if (name === 'applicantId') return;
     if (name === 'animalType') {
       setShelterRequestForm(prev => ({ ...prev, animalType: Number(value) as AnimalTypeCode }));
       return;
@@ -200,7 +208,7 @@ export default function MapPage() {
   const validateShelterRequestForm = () => {
     if (!shelterRequestForm.name.trim()) return '보호소 이름은 필수입니다.';
     if (!shelterRequestForm.address.trim()) return '주소는 필수입니다.';
-    if (!shelterRequestForm.applicantId.trim()) return '신청자 아이디는 필수입니다.';
+    if (!nickname.trim()) return '닉네임이 없습니다. 내 프로필에서 닉네임을 먼저 설정해 주세요.';
     const lat = Number(shelterRequestForm.latitude);
     const lng = Number(shelterRequestForm.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '주소를 검색하거나 위경도를 숫자로 입력해 주세요.';
@@ -244,7 +252,7 @@ export default function MapPage() {
         phone_number: shelterRequestForm.phoneNumber.trim() || null,
         description: shelterRequestForm.description.trim() || null,
         link_url: shelterRequestForm.linkUrl.trim() || null,
-        applicant_id: shelterRequestForm.applicantId.trim(),
+        applicant_id: nickname.trim(),
         animal_type: String(shelterRequestForm.animalType),
         applied_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -397,7 +405,7 @@ export default function MapPage() {
         <div className="flex flex-wrap items-center gap-4 mt-4 px-2">
           <div className="flex items-center gap-1.5 text-sm text-gray-600 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-[#f472b6]"></span> 고양이 보호소</div>
           <div className="flex items-center gap-1.5 text-sm text-gray-600 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-[#60a5fa]"></span> 강아지 보호소</div>
-          <div className="flex items-center gap-1.5 text-sm text-gray-600 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-[#10b981]"></span> 혼합 보호소</div>
+          <div className="flex items-center gap-1.5 text-sm text-gray-600 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-[#10b981]"></span> 기타 보호소</div>
         </div>
 
         <hr className="my-10 border-gray-200" />
@@ -481,18 +489,41 @@ export default function MapPage() {
       {isShelterRequestModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-5 backdrop-blur-sm">
           <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
-            <h2 className="text-xl font-bold text-gray-900">보호소 등록 신청</h2>
-            <p className="mt-2 text-sm text-gray-500">관리자 승인 후 지도에 노출됩니다.</p>
-            
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <h2 className="text-xl font-bold text-gray-900">보호소 등록 신청</h2>
+                <p className="mt-2 text-sm text-gray-500">관리자 승인 후 지도에 노출됩니다.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeShelterRequestModal}
+                className="md:hidden shrink-0 rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors -mr-1 -mt-1"
+                aria-label="닫기"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
             <form className="mt-6 space-y-4" onSubmit={handleShelterRequestSubmit}>
-              <input type="text" name="applicantId" value={shelterRequestForm.applicantId} onChange={handleShelterRequestInputChange} className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-900" placeholder="신청자 아이디 *" required />
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-gray-500">신청자 (닉네임)</label>
+                <input
+                  type="text"
+                  name="applicantId"
+                  value={shelterRequestForm.applicantId}
+                  readOnly
+                  className="w-full cursor-not-allowed rounded-xl border border-gray-300 bg-gray-50 px-4 py-2.5 text-sm text-gray-700 outline-none"
+                  placeholder="로그인 닉네임이 자동 입력됩니다"
+                  required
+                />
+              </div>
               <input type="text" name="name" value={shelterRequestForm.name} onChange={handleShelterRequestInputChange} className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-900" placeholder="보호소 이름 *" maxLength={120} required />
               
               <div>
                 <select name="animalType" value={String(shelterRequestForm.animalType)} onChange={handleShelterRequestInputChange} className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-900 text-gray-600" required>
-                  <option value="1">강아지 (1)</option>
-                  <option value="2">고양이 (2)</option>
-                  <option value="3">혼합 (3)</option>
+                  <option value="1">강아지</option>
+                  <option value="2">고양이</option>
+                  <option value="3">기타</option>
                 </select>
               </div>
 
