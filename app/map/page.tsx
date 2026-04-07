@@ -2,14 +2,17 @@
 'use client';
 
 import { ChangeEvent, FormEvent, useState, useEffect } from 'react';
-import { Search, Plus, MapPin, Phone, Clock, PawPrint } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Search, Plus, MapPin, Phone, Clock, PawPrint, AlertCircle, User, LogOut } from 'lucide-react';
+import Image from 'next/image';
+
+const AVATAR_PATHS = Array.from({ length: 10 }, (_, i) => `/avatars/avatar-${i + 1}.PNG`);
 import MapCustomMarker from '@/components/MapCustomMarker';
 import { supabase } from '@/lib/supabase';
 import { Map, CustomOverlayMap, useKakaoLoader } from 'react-kakao-maps-sdk';
 import { useDaumPostcodePopup } from 'react-daum-postcode';
 import { ANIMAL_TYPE_DOG, type AnimalTypeCode } from '@/lib/animalType';
 
-// 💡 하단 리스트(Card)에 표시하기 위해 address, phone, hours 컬럼을 추가했습니다.
 interface Shelter {
   id: number;
   name: string;
@@ -45,9 +48,9 @@ const INITIAL_SHELTER_REQUEST_FORM: ShelterRequestForm = {
 const PHONE_NUMBER_REGEX = /^[0-9+\-()\s]{8,20}$/;
 
 const ANIMAL_BADGE_CLASS: Record<string, string> = {
-  1: "bg-blue-50 text-blue-600 border-blue-200",   // 강아지
-  2: "bg-pink-50 text-pink-600 border-pink-200",   // 고양이
-  3: "bg-emerald-50 text-emerald-600 border-emerald-200", // 혼합
+  1: "bg-blue-50 text-blue-600 border-blue-200",
+  2: "bg-pink-50 text-pink-600 border-pink-200",
+  3: "bg-emerald-50 text-emerald-600 border-emerald-200",
 };
 
 const ANIMAL_LABEL: Record<string, string> = {
@@ -57,6 +60,13 @@ const ANIMAL_LABEL: Record<string, string> = {
 };
 
 export default function MapPage() {
+  const router = useRouter();
+  const [user, setUser] = useState<any>(null);
+  const [nickname, setNickname] = useState('');
+  const [avatarIndex, setAvatarIndex] = useState<number | null>(null);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+
   const [searchKeyword, setSearchKeyword] = useState('');
   const [isShelterRequestModalOpen, setIsShelterRequestModalOpen] = useState(false);
   const [shelterRequestForm, setShelterRequestForm] = useState<ShelterRequestForm>(INITIAL_SHELTER_REQUEST_FORM);
@@ -72,13 +82,38 @@ export default function MapPage() {
     libraries: ['services'],
   });
 
+  const fetchUserProfile = async (userId: string) => {
+    const { data } = await supabase
+      .from('users')
+      .select('nickname, avatar_index')
+      .eq('id', userId)
+      .single();
+    if (data) {
+      setNickname(data.nickname || '');
+      setAvatarIndex(data.avatar_index ?? null);
+    }
+  };
+
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) fetchUserProfile(session.user.id);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) fetchUserProfile(session.user.id);
+      else { setNickname(''); setAvatarIndex(null); }
+    });
+
     fetchMapMarkers();
+
+    return () => subscription.unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchMapMarkers = async () => {
     try {
-      // 💡 리스트 카드에 필요한 데이터를 모두 가져옵니다.
       const { data, error } = await supabase
         .from('shelters')
         .select('id, name, latitude, longitude, animal_type, address, phone_number, operating_hours')
@@ -107,10 +142,31 @@ export default function MapPage() {
     }
   };
 
-  // 🚀 검색어에 따라 지도 마커와 하단 리스트를 동시에 필터링
   const filteredShelters = shelters.filter(s => 
     s.name.includes(searchKeyword) || s.address.includes(searchKeyword)
   );
+
+  const handleRegisterClick = () => {
+    if (user) {
+      setIsShelterRequestModalOpen(true);
+    } else {
+      setIsLoginModalOpen(true);
+    }
+  };
+
+  // 🚀 수정됨: 억지로 넣었던 scopes 속성을 제거 (카카오 디벨로퍼스 설정으로 해결)
+  const handleKakaoLogin = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'kakao',
+      options: {
+        redirectTo: `${window.location.origin}/map`
+      }
+    });
+    if (error) {
+      console.error('로그인 에러:', error.message);
+      alert('로그인 처리 중 문제가 발생했습니다.');
+    }
+  };
 
   const handleShelterRequestInputChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -212,7 +268,6 @@ export default function MapPage() {
 
   return (
     <div className="min-h-screen bg-gray-50/50 pb-20">
-      {/* 헤더 영역 */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           
@@ -221,28 +276,94 @@ export default function MapPage() {
             <span className="text-xl font-bold text-gray-900 tracking-tight">FlowU</span>
           </div>
 
-          <button 
-            onClick={() => setIsShelterRequestModalOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-emerald-400 text-white text-sm font-semibold rounded-full hover:bg-emerald-500 transition-colors shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">봉사 센터 등록</span>
-            <span className="sm:hidden">등록</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={handleRegisterClick}
+              className="flex items-center gap-1.5 px-4 py-2 bg-emerald-400 text-white text-sm font-semibold rounded-full hover:bg-emerald-500 transition-colors shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">봉사 센터 등록</span>
+              <span className="sm:hidden">등록</span>
+            </button>
+
+            {/* 프로필 영역 */}
+            {user ? (
+              <div className="relative">
+                <button
+                  onClick={() => setIsProfileMenuOpen(prev => !prev)}
+                  className="flex items-center justify-center w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors border border-gray-200 shrink-0 overflow-hidden"
+                  aria-label="프로필 메뉴"
+                >
+                  {avatarIndex !== null ? (
+                    <Image
+                      src={AVATAR_PATHS[avatarIndex - 1]}
+                      alt="프로필"
+                      width={36}
+                      height={36}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <User className="w-4 h-4 text-gray-500" />
+                  )}
+                </button>
+
+                {isProfileMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsProfileMenuOpen(false)} />
+                    <div className="absolute right-0 top-11 z-50 w-52 bg-white rounded-2xl shadow-lg border border-gray-100 py-1.5 overflow-hidden">
+                      {/* 인사 문구 */}
+                      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
+                        <div className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 shrink-0 overflow-hidden flex items-center justify-center">
+                          {avatarIndex !== null ? (
+                            <Image
+                              src={AVATAR_PATHS[avatarIndex - 1]}
+                              alt="프로필"
+                              width={36}
+                              height={36}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <User className="w-4 h-4 text-gray-400" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">
+                            {nickname || '사용자'}님
+                          </p>
+                          <p className="text-xs text-gray-400 truncate">{user.email ?? ''}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => { setIsProfileMenuOpen(false); router.push('/profile'); }}
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        <User className="w-4 h-4 text-gray-400" />
+                        내 프로필
+                      </button>
+                      <button
+                        onClick={async () => { setIsProfileMenuOpen(false); await supabase.auth.signOut(); }}
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        로그아웃
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
 
-      {/* 메인 콘텐츠 영역 */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 mt-8">
         
-        {/* 🚀 타이틀 & 검색창 영역 (지도 위 양끝 정렬) */}
         <div className="mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">주변 봉사 센터</h1>
             <p className="mt-1 text-sm text-gray-500">가까운 유기동물 봉사 센터를 찾아보세요</p>
           </div>
           
-          {/* 우측 상단 검색창 */}
           <div className="w-full md:w-96 relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input 
@@ -255,7 +376,6 @@ export default function MapPage() {
           </div>
         </div>
 
-        {/* 지도 컨테이너 */}
         <div className="w-full h-[450px] md:h-[550px] rounded-2xl overflow-hidden border border-gray-200 shadow-sm relative z-0">
           <Map
             center={{ lat: 37.5326, lng: 127.0246 }} 
@@ -274,7 +394,6 @@ export default function MapPage() {
           </Map>
         </div>
 
-        {/* 범례 */}
         <div className="flex flex-wrap items-center gap-4 mt-4 px-2">
           <div className="flex items-center gap-1.5 text-sm text-gray-600 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-[#f472b6]"></span> 고양이 보호소</div>
           <div className="flex items-center gap-1.5 text-sm text-gray-600 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-[#60a5fa]"></span> 강아지 보호소</div>
@@ -283,7 +402,6 @@ export default function MapPage() {
 
         <hr className="my-10 border-gray-200" />
 
-        {/* 하단 리스트 영역 */}
         <div>
           <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
             센터 목록 <span className="text-blue-600 text-lg font-semibold">{filteredShelters.length}곳</span>
@@ -328,7 +446,38 @@ export default function MapPage() {
         </div>
       </main>
 
-      {/* 등록 모달 */}
+      {isLoginModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 py-5 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-8 shadow-2xl text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-50 mb-5">
+              <AlertCircle className="h-7 w-7 text-red-500" />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">로그인이 필요합니다</h2>
+            <p className="text-sm text-gray-500 mb-8">
+              로그인 후 센터 등록 신청이 가능합니다.
+            </p>
+            
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={handleKakaoLogin}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#FEE500] px-4 py-3.5 text-sm font-bold text-black/85 transition-colors hover:bg-[#FEE500]/90 shadow-sm"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                  <path d="M12 3c-4.97 0-9 3.185-9 7.115 0 2.535 1.631 4.753 4.102 5.961-.137.49-4.398 14.072-4.525 14.475-.022.067-.024.167.042.222.046.038.106.04.156.031.144-.025 6.33-4.184 7.391-4.887.915.127 1.861.196 2.834.196 4.97 0 9-3.185 9-7.115C21 6.185 16.97 3 12 3z"/>
+                </svg>
+                카카오 로그인 하기
+              </button>
+              <button
+                onClick={() => setIsLoginModalOpen(false)}
+                className="w-full rounded-xl bg-gray-100 px-4 py-3.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-200"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isShelterRequestModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-5 backdrop-blur-sm">
           <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
