@@ -9,7 +9,7 @@
 
 <br/>
 
-![image](https://github.com/user-attachments/assets/83d29810-b8ce-4808-865a-f520292006f8)
+<img src="https://github.com/user-attachments/assets/83d29810-b8ce-4808-865a-f520292006f8">
 
 
 ## 📖 프로젝트 소개
