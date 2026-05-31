@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { type AnimalTypeCode, normalizeAnimalType } from "@/lib/animalType";
+import { ANIMAL_BADGE_CLASS, ANIMAL_LABEL } from "@/lib/shelterUi";
 
 // ─────────────────────────────────────────────
 // Types
@@ -31,17 +32,7 @@ type TabView = "shelters" | "pending";
 // ─────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────
-const ANIMAL_BADGE_CLASS: Record<AnimalTypeCode, string> = {
-  1: "bg-blue-50 text-blue-600 border border-blue-200",
-  2: "bg-pink-50 text-pink-600 border border-pink-200",
-  3: "bg-emerald-50 text-emerald-600 border border-emerald-200",
-};
-
-const ANIMAL_LABEL: Record<AnimalTypeCode, string> = {
-  1: "🐶 강아지",
-  2: "🐱 고양이",
-  3: "🐾 혼합",
-};
+// 공통 UI 상수는 `lib/shelterUi`로 이동
 
 const FILTER_OPTIONS: { value: AnimalFilter; label: string }[] = [
   { value: "all", label: "전체" },

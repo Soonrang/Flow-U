@@ -228,7 +228,7 @@ export default function ProfileEditPage() {
               <button
                 type="submit"
                 disabled={isSaving}
-                className="w-full flex items-center justify-center gap-2 py-4 bg-gray-900 hover:bg-gray-800 text-white font-bold rounded-xl transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+                className="w-full flex items-center justify-center gap-2 py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
               >
                 {isSaving ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
