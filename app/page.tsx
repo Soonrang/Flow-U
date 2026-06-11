@@ -31,11 +31,16 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
-      
+      // 배경색을 Tailwind의 bg-gray-50 대신 직접 hex 컬러로 적용
+      <style jsx global>{`
+        main.custom-bg {
+          background-color: #f9fafb !important;
+        }
+      `}</style>
       {/* 로고 및 타이틀 영역 */}
       <div className="mb-16 flex flex-col items-center">
         {/* public 폴더에 logo.png를 넣으면 자동으로 불러옵니다 */}
-        <div className="relative h-50 w-80 mb-4">
+        <div className="relative h-60 w-100 mb-4">
           <Image 
             src="/logo.png" 
             alt="FlowU Logo" 
@@ -44,8 +49,8 @@ export default function Home() {
             priority
           />
         </div>
-        <h1 className="text-4xl font-bold text-gray-800 tracking-tight">FlowU</h1>
-        <p className="mt-3 text-gray-500 font-medium">유기동물 봉사 센터 지도</p>
+       {/* <h1 className="text-4xl font-bold text-gray-800 tracking-tight">FlowU</h1> */}
+       {/* <p className="mt-3 text-gray-500 font-medium">유기동물 봉사 센터 지도</p> */}
       </div>
 
       {/* 버튼 영역 */}
