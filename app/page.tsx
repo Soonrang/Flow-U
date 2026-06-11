@@ -31,7 +31,6 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
-      // 배경색을 Tailwind의 bg-gray-50 대신 직접 hex 컬러로 적용
       <style jsx global>{`
         main.custom-bg {
           background-color: #f9fafb !important;
