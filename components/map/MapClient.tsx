@@ -1,11 +1,11 @@
 'use client';
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Map, CustomOverlayMap, useKakaoLoader } from 'react-kakao-maps-sdk';
 import { useDaumPostcodePopup } from 'react-daum-postcode';
 import Image from 'next/image';
-import { AlertCircle, Clock, LocateFixed, LogOut, MapPin, Phone, Plus, Search, User, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Clock, Copy, ExternalLink, LocateFixed, LogOut, MapPin, Navigation, Phone, Plus, Search, User, X } from 'lucide-react';
 
 import MapCustomMarker from '@/components/MapCustomMarker';
 import MobileMapBottomSheet, { type SheetState, type ShelterListItem } from '@/components/map/MobileMapBottomSheet';
@@ -15,6 +15,7 @@ import { ANIMAL_BADGE_CLASS, ANIMAL_LABEL, PHONE_NUMBER_REGEX } from '@/lib/shel
 
 const AVATAR_PATHS = Array.from({ length: 10 }, (_, i) => `/avatars/avatar-${i + 1}.PNG`);
 const DEFAULT_CENTER = { lat: 37.5326, lng: 127.0246 };
+const GEOLOCATION_OPTIONS: PositionOptions = { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 };
 
 type ShelterRow = {
   id: number;
@@ -25,6 +26,7 @@ type ShelterRow = {
   address: string | null;
   phone_number: string | null;
   operating_hours: string | null;
+  description: string | null;
 };
 
 type ShelterRequestForm = {
@@ -71,6 +73,8 @@ const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon
 export default function MapClient() {
   const router = useRouter();
   const openPostcodePopup = useDaumPostcodePopup();
+  const mobileMapRef = useRef<kakao.maps.Map | null>(null);
+  const desktopMapRef = useRef<kakao.maps.Map | null>(null);
 
   const [user, setUser] = useState<any>(null);
   const [nickname, setNickname] = useState('');
@@ -82,9 +86,10 @@ export default function MapClient() {
   const [sheetState, setSheetState] = useState<SheetState>('closed');
   const [shelters, setShelters] = useState<ShelterListItem[]>([]);
   const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER);
-  const [isGeoLoaded, setIsGeoLoaded] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
+  const [locationErrorMessage, setLocationErrorMessage] = useState('');
   const [selectedShelterId, setSelectedShelterId] = useState<number | null>(null);
+  const [copiedShelterId, setCopiedShelterId] = useState<number | null>(null);
 
   const [isShelterRequestModalOpen, setIsShelterRequestModalOpen] = useState(false);
   const [shelterRequestForm, setShelterRequestForm] = useState<ShelterRequestForm>(INITIAL_SHELTER_REQUEST_FORM);
@@ -128,7 +133,7 @@ export default function MapClient() {
     const fetchShelters = async () => {
       const { data, error: queryError } = await supabase
         .from('shelters')
-        .select('id, name, latitude, longitude, animal_type, address, phone_number, operating_hours')
+        .select('id, name, latitude, longitude, animal_type, address, phone_number, operating_hours, description')
         .eq('use_yn', 'Y')
         .eq('aprv_status', 'Y')
         .or('del_yn.eq.N,del_yn.is.null')
@@ -147,6 +152,7 @@ export default function MapClient() {
           address: row.address ?? '',
           phone: row.phone_number ?? '',
           hours: row.operating_hours ?? '',
+          description: row.description ?? '',
           distanceKm: 0,
         }));
 
@@ -155,20 +161,35 @@ export default function MapClient() {
     void fetchShelters();
   }, []);
 
+  const moveMapToPosition = useCallback((position: { lat: number; lng: number }) => {
+    setMapCenter(position);
+
+    if (typeof window === 'undefined' || !window.kakao?.maps) return;
+
+    const nextCenter = new window.kakao.maps.LatLng(position.lat, position.lng);
+    mobileMapRef.current?.panTo(nextCenter);
+    desktopMapRef.current?.panTo(nextCenter);
+  }, []);
+
+  const getLocationErrorMessage = (positionError?: GeolocationPositionError) => {
+    if (!navigator.geolocation) return '이 브라우저에서는 현재 위치를 사용할 수 없습니다.';
+    if (positionError?.code === 1) return '브라우저에서 위치 권한을 허용해 주세요.';
+    if (positionError?.code === 3) return '현재 위치를 가져오는 데 시간이 오래 걸리고 있습니다. 다시 시도해 주세요.';
+    return '현재 위치를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.';
+  };
+
   useEffect(() => {
     if (!navigator.geolocation) {
-      setIsGeoLoaded(true);
       return;
     }
     navigator.geolocation.getCurrentPosition(
       (p) => {
-        setMapCenter({ lat: p.coords.latitude, lng: p.coords.longitude });
-        setIsGeoLoaded(true);
+        moveMapToPosition({ lat: p.coords.latitude, lng: p.coords.longitude });
       },
-      () => setIsGeoLoaded(true),
-      { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 },
+      () => undefined,
+      GEOLOCATION_OPTIONS,
     );
-  }, []);
+  }, [moveMapToPosition]);
 
   const listByCenter = useMemo(
     () =>
@@ -179,17 +200,37 @@ export default function MapClient() {
     [mapCenter.lat, mapCenter.lng, searchKeyword, shelters],
   );
 
+  const selectedShelter = useMemo(
+    () => listByCenter.find((shelter) => shelter.id === selectedShelterId) ?? null,
+    [listByCenter, selectedShelterId],
+  );
+  const selectedShelterKakaoSearchUrl = selectedShelter
+    ? `https://map.kakao.com/link/search/${encodeURIComponent(`${selectedShelter.name} ${selectedShelter.address}`.trim())}`
+    : '';
+  const selectedShelterKakaoRouteUrl = selectedShelter
+    ? `https://map.kakao.com/link/to/${encodeURIComponent(selectedShelter.name)},${selectedShelter.lat},${selectedShelter.lng}`
+    : '';
+
   const handleLocateMe = () => {
-    if (!navigator.geolocation || isLocating) return;
+    if (isLocating) return;
+    if (!navigator.geolocation) {
+      setLocationErrorMessage(getLocationErrorMessage());
+      return;
+    }
+
     setIsLocating(true);
+    setLocationErrorMessage('');
     navigator.geolocation.getCurrentPosition(
       (p) => {
-        setMapCenter({ lat: p.coords.latitude, lng: p.coords.longitude });
+        moveMapToPosition({ lat: p.coords.latitude, lng: p.coords.longitude });
         setSheetState('closed');
         setIsLocating(false);
       },
-      () => setIsLocating(false),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+      (positionError) => {
+        setLocationErrorMessage(getLocationErrorMessage(positionError));
+        setIsLocating(false);
+      },
+      GEOLOCATION_OPTIONS,
     );
   };
 
@@ -203,8 +244,26 @@ export default function MapClient() {
   };
 
   const handleMoveToShelter = (shelterId: number) => {
+    const targetShelter = listByCenter.find((shelter) => shelter.id === shelterId);
+
     setSelectedShelterId(shelterId);
-    router.push(`/shelter/${shelterId}`);
+    setSheetState((current) => (current === 'closed' ? 'half' : current));
+
+    if (targetShelter && window.matchMedia('(min-width: 768px)').matches) {
+      moveMapToPosition({ lat: targetShelter.lat, lng: targetShelter.lng });
+    }
+  };
+
+  const handleBackToShelterList = () => {
+    setSelectedShelterId(null);
+  };
+
+  const handleCopyAddress = async (shelter: ShelterListItem) => {
+    if (!shelter.address.trim() || !navigator.clipboard) return;
+
+    await navigator.clipboard.writeText(shelter.address);
+    setCopiedShelterId(shelter.id);
+    window.setTimeout(() => setCopiedShelterId((current) => (current === shelter.id ? null : current)), 1600);
   };
 
   const handleKakaoLogin = async () => {
@@ -273,7 +332,7 @@ export default function MapClient() {
     }
   };
 
-  if (loading || !isGeoLoaded) return <div className="flex h-[100dvh] items-center justify-center">Loading map...</div>;
+  if (loading) return <div className="flex h-[100dvh] items-center justify-center">Loading map...</div>;
   if (error) return <div className="flex h-[100dvh] items-center justify-center text-red-500">Failed to load map.</div>;
 
   return (
@@ -301,19 +360,46 @@ export default function MapClient() {
 
         <main className="relative flex-1 overflow-hidden">
           <div className="absolute inset-0">
-            <Map center={mapCenter} style={{ width: '100%', height: '100%' }} level={5} onCenterChanged={(map) => { const c = map.getCenter(); setMapCenter({ lat: c.getLat(), lng: c.getLng() }); }}>
-              {listByCenter.map((s) => <CustomOverlayMap key={s.id} position={{ lat: s.lat, lng: s.lng }} yAnchor={1}><button type="button" onClick={() => setSheetState('half')}><MapCustomMarker type={s.type} /></button></CustomOverlayMap>)}
+            <Map center={mapCenter} style={{ width: '100%', height: '100%' }} level={5} onCreate={(map) => { mobileMapRef.current = map; }} onCenterChanged={(map) => { const c = map.getCenter(); setMapCenter({ lat: c.getLat(), lng: c.getLng() }); }}>
+              {listByCenter.map((s) => {
+                const isSelected = selectedShelterId === s.id;
+
+                return (
+                  <CustomOverlayMap key={s.id} position={{ lat: s.lat, lng: s.lng }} yAnchor={1} zIndex={isSelected ? 10 : 1}>
+                    <button
+                      type="button"
+                      onClick={() => handleMoveToShelter(s.id)}
+                      aria-pressed={isSelected}
+                      className="cursor-pointer"
+                    >
+                      <MapCustomMarker type={s.type} selected={isSelected} />
+                    </button>
+                  </CustomOverlayMap>
+                );
+              })}
             </Map>
           </div>
           <div className="pointer-events-none absolute inset-x-0 top-3 z-20 px-4">
             <div className="pointer-events-auto relative">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)} placeholder="센터 이름 또는 지역 검색" className="h-12 w-full rounded-2xl border bg-white px-11 pr-4 text-sm shadow-lg outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" />
-              <button type="button" onClick={handleLocateMe} disabled={isLocating} className="absolute -bottom-12 right-0 inline-flex h-11 w-11 items-center justify-center rounded-full border bg-white shadow-lg"><LocateFixed className="h-5 w-5 text-emerald-600" /></button>
+              <button type="button" onClick={handleLocateMe} disabled={isLocating} className="absolute -bottom-12 right-0 inline-flex h-11 w-11 items-center justify-center rounded-full border bg-white shadow-lg" aria-label="내 위치로 이동"><LocateFixed className="h-5 w-5 text-emerald-600" /></button>
+              {locationErrorMessage ? (
+                <p className="absolute right-0 top-[6.5rem] max-w-64 rounded-xl border border-red-100 bg-white px-3 py-2 text-xs font-medium text-red-600 shadow-lg">
+                  {locationErrorMessage}
+                </p>
+              ) : null}
             </div>
           </div>
           {sheetState === 'closed' ? <div className="absolute inset-x-0 bottom-6 z-20 flex justify-center"><button type="button" onClick={() => setSheetState('half')} className="rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-xl">목록보기 ({listByCenter.length})</button></div> : null}
-          <MobileMapBottomSheet shelters={listByCenter} sheetState={sheetState} onSheetStateChange={setSheetState} onSelectShelter={handleMoveToShelter} />
+          <MobileMapBottomSheet
+            shelters={listByCenter}
+            selectedShelter={selectedShelter}
+            sheetState={sheetState}
+            onBackToList={handleBackToShelterList}
+            onSheetStateChange={setSheetState}
+            onSelectShelter={handleMoveToShelter}
+          />
         </main>
       </div>
 
@@ -348,49 +434,135 @@ export default function MapClient() {
               className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-emerald-50 disabled:opacity-60"
             >
               <LocateFixed className="h-4 w-4 text-emerald-600" />
-              내 위치로 이동
+              {isLocating ? '위치 확인 중' : '내 위치로 이동'}
             </button>
+            {locationErrorMessage ? (
+              <p className="text-xs font-medium text-red-600">{locationErrorMessage}</p>
+            ) : null}
           </div>
 
-          <div className="flex-1 space-y-3 overflow-y-auto p-4">
-            {listByCenter.map((shelter) => (
-              <button
-                key={shelter.id}
-                type="button"
-                onClick={() => handleMoveToShelter(shelter.id)}
-                className={`w-full rounded-2xl border p-4 text-left shadow-sm transition ${
-                  selectedShelterId === shelter.id
-                    ? 'border-emerald-300 bg-emerald-50'
-                    : 'border-slate-200 bg-white hover:border-emerald-200'
-                }`}
-              >
-                <div className="mb-2 flex items-start justify-between gap-3">
-                  <h3 className="line-clamp-2 text-sm font-bold text-slate-900">{shelter.name}</h3>
-                  <span
-                    className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${ANIMAL_BADGE_CLASS[shelter.type]}`}
+          <div className="flex-1 overflow-y-auto p-4">
+            {selectedShelter ? (
+              <div className="-m-4 min-h-full bg-white">
+                <div className="sticky top-0 z-10 flex h-12 items-center justify-between border-b border-slate-200 bg-white px-3">
+                  <button
+                    type="button"
+                    onClick={handleBackToShelterList}
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                   >
-                    {ANIMAL_LABEL[shelter.type]}
-                  </span>
+                    <ArrowLeft className="h-4 w-4" />
+                    목록
+                  </button>
+                  <span className="text-xs font-medium text-slate-400">상세정보</span>
                 </div>
-                <div className="space-y-1.5 text-xs text-slate-600">
-                  <p className="flex items-start gap-2">
-                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
-                    <span className="line-clamp-1">{shelter.address || '주소 정보 없음'}</span>
-                  </p>
-                  <p className="flex items-center gap-2">
-                    <Phone className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                    {shelter.phone || '-'}
-                  </p>
-                  <p className="flex items-center gap-2">
-                    <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                    {shelter.hours || '운영시간 정보 없음'}
-                  </p>
+
+                <div className="space-y-5 px-5 py-5">
+                  <div className="space-y-3 border-b border-slate-100 pb-5">
+                    <h2 className="line-clamp-2 text-2xl font-bold leading-8 text-slate-950">{selectedShelter.name}</h2>
+                    <span
+                      className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${ANIMAL_BADGE_CLASS[selectedShelter.type]}`}
+                    >
+                      {ANIMAL_LABEL[selectedShelter.type]}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2">
+                    <a
+                      href={selectedShelter.phone ? `tel:${selectedShelter.phone}` : undefined}
+                      aria-disabled={!selectedShelter.phone}
+                      className={`flex flex-col items-center gap-1 rounded-xl border px-2 py-3 text-xs font-semibold ${
+                        selectedShelter.phone
+                          ? 'border-slate-200 text-slate-700 hover:bg-emerald-50'
+                          : 'pointer-events-none border-slate-100 text-slate-300'
+                      }`}
+                    >
+                      <Phone className="h-4 w-4 text-emerald-600" />
+                      전화
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyAddress(selectedShelter)}
+                      disabled={!selectedShelter.address.trim()}
+                      className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 px-2 py-3 text-xs font-semibold text-slate-700 hover:bg-emerald-50 disabled:pointer-events-none disabled:border-slate-100 disabled:text-slate-300"
+                    >
+                      <Copy className="h-4 w-4 text-emerald-600" />
+                      {copiedShelterId === selectedShelter.id ? '복사됨' : '주소복사'}
+                    </button>
+                    <a
+                      href={selectedShelterKakaoSearchUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 px-2 py-3 text-xs font-semibold text-slate-700 hover:bg-emerald-50"
+                    >
+                      <ExternalLink className="h-4 w-4 text-emerald-600" />
+                      카카오맵
+                    </a>
+                    <a
+                      href={selectedShelterKakaoRouteUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 px-2 py-3 text-xs font-semibold text-slate-700 hover:bg-emerald-50"
+                    >
+                      <Navigation className="h-4 w-4 text-emerald-600" />
+                      길찾기
+                    </a>
+                  </div>
+
+                  <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
+                    <p className="flex items-start gap-3 px-4 py-3 text-sm text-slate-700">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                      <span>{selectedShelter.address || '주소 정보 없음'}</span>
+                    </p>
+                    <p className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700">
+                      <Phone className="h-4 w-4 shrink-0 text-emerald-500" />
+                      {selectedShelter.phone || '-'}
+                    </p>
+                    <p className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700">
+                      <Clock className="h-4 w-4 shrink-0 text-emerald-500" />
+                      {selectedShelter.hours || '운영시간 정보 없음'}
+                    </p>
+                  </div>
+
+                  {selectedShelter.description.trim() ? (
+                    <section className="space-y-2">
+                      <h3 className="text-sm font-bold text-slate-900">소개</h3>
+                      <p className="whitespace-pre-wrap rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+                        {selectedShelter.description}
+                      </p>
+                    </section>
+                  ) : null}
                 </div>
-                <p className="mt-3 border-t border-slate-100 pt-2 text-right text-[11px] font-semibold text-emerald-600">
-                  중심에서 약 {shelter.distanceKm.toFixed(1)}km
-                </p>
-              </button>
-            ))}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {listByCenter.map((shelter) => (
+                  <button
+                    key={shelter.id}
+                    type="button"
+                    onClick={() => handleMoveToShelter(shelter.id)}
+                    className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-emerald-200"
+                  >
+                    <div className="mb-2 flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="line-clamp-2 text-sm font-bold text-slate-900">{shelter.name}</h3>
+                        <p className="mt-1 text-xs font-semibold text-emerald-600">
+                          중심에서 약 {shelter.distanceKm.toFixed(1)}km
+                        </p>
+                      </div>
+                      <span
+                        className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${ANIMAL_BADGE_CLASS[shelter.type]}`}
+                      >
+                        {ANIMAL_LABEL[shelter.type]}
+                      </span>
+                    </div>
+                    <p className="flex items-start gap-2 text-xs text-slate-600">
+                      <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <span className="line-clamp-1">{shelter.address || '주소 정보 없음'}</span>
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </aside>
 
@@ -399,22 +571,30 @@ export default function MapClient() {
             center={mapCenter}
             style={{ width: '100%', height: '100%' }}
             level={5}
+            onCreate={(map) => {
+              desktopMapRef.current = map;
+            }}
             onCenterChanged={(map) => {
               const center = map.getCenter();
               setMapCenter({ lat: center.getLat(), lng: center.getLng() });
             }}
           >
-            {listByCenter.map((s) => (
-              <CustomOverlayMap key={`desktop-${s.id}`} position={{ lat: s.lat, lng: s.lng }} yAnchor={1}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedShelterId(s.id)}
-                  className="cursor-pointer transition-transform hover:scale-110"
-                >
-                  <MapCustomMarker type={s.type} />
-                </button>
-              </CustomOverlayMap>
-            ))}
+            {listByCenter.map((s) => {
+              const isSelected = selectedShelterId === s.id;
+
+              return (
+                <CustomOverlayMap key={`desktop-${s.id}`} position={{ lat: s.lat, lng: s.lng }} yAnchor={1} zIndex={isSelected ? 10 : 1}>
+                  <button
+                    type="button"
+                    onClick={() => handleMoveToShelter(s.id)}
+                    aria-pressed={isSelected}
+                    className="cursor-pointer"
+                  >
+                    <MapCustomMarker type={s.type} selected={isSelected} />
+                  </button>
+                </CustomOverlayMap>
+              );
+            })}
           </Map>
         </section>
       </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { motion, type PanInfo } from 'framer-motion';
-import { Clock, MapPin, Phone } from 'lucide-react';
+import { ArrowLeft, Clock, MapPin, Phone } from 'lucide-react';
 
 import { type AnimalTypeCode } from '@/lib/animalType';
 import { ANIMAL_BADGE_CLASS, ANIMAL_LABEL } from '@/lib/shelterUi';
@@ -17,13 +17,16 @@ export interface ShelterListItem {
   address: string;
   phone: string;
   hours: string;
+  description: string;
   type: AnimalTypeCode;
   distanceKm: number;
 }
 
 interface MobileMapBottomSheetProps {
   shelters: ShelterListItem[];
+  selectedShelter: ShelterListItem | null;
   sheetState: SheetState;
+  onBackToList: () => void;
   onSheetStateChange: (next: SheetState) => void;
   onSelectShelter: (shelterId: number) => void;
 }
@@ -35,7 +38,9 @@ const HALF_RATIO = 0.46;
 
 export default function MobileMapBottomSheet({
   shelters,
+  selectedShelter,
   sheetState,
+  onBackToList,
   onSheetStateChange,
   onSelectShelter,
 }: MobileMapBottomSheetProps) {
@@ -103,63 +108,107 @@ export default function MobileMapBottomSheet({
           </span>
         </button>
 
-        <div className="px-4 pb-4">
-          <h2 className="text-base font-bold text-slate-900">
-            주변 보호소 {shelters.length}곳
-          </h2>
-          <p className="mt-1 text-xs text-slate-500">
-            현재 지도 중심 기준 가까운 순서로 정렬됩니다.
-          </p>
-        </div>
-
-        <div className="h-[calc(100%-96px)] overflow-y-auto px-4 pb-8">
-          {shelters.length === 0 ? (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-500">
-              검색 조건에 맞는 보호소가 없습니다.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {shelters.map((shelter) => (
-                <button
-                  key={shelter.id}
-                  type="button"
-                  onClick={() => onSelectShelter(shelter.id)}
-                  className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-emerald-300 hover:shadow"
+        {selectedShelter ? (
+          <div className="flex h-[calc(100%-52px)] flex-col">
+            <div className="flex items-start justify-between gap-3 px-4 pb-4">
+              <div className="min-w-0 flex-1">
+                <h2 className="line-clamp-2 text-base font-bold text-slate-900">{selectedShelter.name}</h2>
+                <span
+                  className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${ANIMAL_BADGE_CLASS[selectedShelter.type]}`}
                 >
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <h3 className="line-clamp-2 text-sm font-bold text-slate-900">{shelter.name}</h3>
-                    <span
-                      className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${ANIMAL_BADGE_CLASS[shelter.type]}`}
-                    >
-                      {ANIMAL_LABEL[shelter.type]}
-                    </span>
-                  </div>
-
-                  <div className="space-y-2 text-xs text-slate-600">
-                    <p className="flex items-start gap-2">
-                      <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
-                      <span className="line-clamp-2">{shelter.address || '주소 정보 없음'}</span>
-                    </p>
-                    <p className="flex items-center gap-2">
-                      <Phone className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                      {shelter.phone || '-'}
-                    </p>
-                    <p className="flex items-center gap-2">
-                      <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                      {shelter.hours || '운영시간 정보 없음'}
-                    </p>
-                  </div>
-
-                  <div className="mt-3 border-t border-slate-100 pt-2 text-right text-[11px] font-semibold text-emerald-600">
-                    중심에서 약 {shelter.distanceKm.toFixed(1)}km
-                  </div>
-                </button>
-              ))}
+                  {ANIMAL_LABEL[selectedShelter.type]}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onBackToList}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm"
+                aria-label="목록으로 돌아가기"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
             </div>
-          )}
-        </div>
+
+            <div className="flex-1 overflow-y-auto px-4 pb-8">
+              <div className="space-y-4">
+                {selectedShelter.description.trim() ? (
+                  <p className="whitespace-pre-wrap rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+                    {selectedShelter.description}
+                  </p>
+                ) : null}
+
+                <div className="space-y-3 text-sm text-slate-600">
+                  <p className="flex items-start gap-2">
+                    <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                    <span>{selectedShelter.address || '주소 정보 없음'}</span>
+                  </p>
+                  <p className="flex items-center gap-2">
+                    <Phone className="h-4 w-4 shrink-0 text-emerald-500" />
+                    {selectedShelter.phone || '-'}
+                  </p>
+                  <p className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 shrink-0 text-emerald-500" />
+                    {selectedShelter.hours || '운영시간 정보 없음'}
+                  </p>
+                </div>
+
+                <p className="rounded-xl bg-emerald-50 px-4 py-3 text-right text-xs font-semibold text-emerald-700">
+                  중심에서 약 {selectedShelter.distanceKm.toFixed(1)}km
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="px-4 pb-4">
+              <h2 className="text-base font-bold text-slate-900">
+                주변 보호소 {shelters.length}곳
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                현재 지도 중심 기준 가까운 순서로 정렬됩니다.
+              </p>
+            </div>
+
+            <div className="h-[calc(100%-96px)] overflow-y-auto px-4 pb-8">
+              {shelters.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-500">
+                  검색 조건에 맞는 보호소가 없습니다.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {shelters.map((shelter) => (
+                    <button
+                      key={shelter.id}
+                      type="button"
+                      onClick={() => onSelectShelter(shelter.id)}
+                      className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-emerald-300 hover:shadow"
+                    >
+                      <div className="mb-2 flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="line-clamp-2 text-sm font-bold text-slate-900">{shelter.name}</h3>
+                          <p className="mt-1 text-xs font-semibold text-emerald-600">
+                            중심에서 약 {shelter.distanceKm.toFixed(1)}km
+                          </p>
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${ANIMAL_BADGE_CLASS[shelter.type]}`}
+                        >
+                          {ANIMAL_LABEL[shelter.type]}
+                        </span>
+                      </div>
+
+                      <p className="flex items-start gap-2 text-xs text-slate-600">
+                        <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+                        <span className="line-clamp-1">{shelter.address || '주소 정보 없음'}</span>
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </motion.section>
     </div>
   );
 }
-
