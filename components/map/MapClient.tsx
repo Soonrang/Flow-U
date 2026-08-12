@@ -2,12 +2,11 @@
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Map, CustomOverlayMap, useKakaoLoader } from 'react-kakao-maps-sdk';
+import { Map, MapMarker, useKakaoLoader } from 'react-kakao-maps-sdk';
 import { useDaumPostcodePopup } from 'react-daum-postcode';
 import Image from 'next/image';
 import { AlertCircle, ArrowLeft, Clock, Copy, ExternalLink, LocateFixed, LogOut, MapPin, Navigation, Phone, Plus, Search, User, X } from 'lucide-react';
 
-import MapCustomMarker from '@/components/MapCustomMarker';
 import MobileMapBottomSheet, { type SheetState, type ShelterListItem } from '@/components/map/MobileMapBottomSheet';
 import { ANIMAL_TYPE_DOG, normalizeAnimalType, type AnimalTypeCode } from '@/lib/animalType';
 import { supabase } from '@/lib/supabase';
@@ -16,6 +15,27 @@ import { ANIMAL_BADGE_CLASS, ANIMAL_LABEL, PHONE_NUMBER_REGEX } from '@/lib/shel
 const AVATAR_PATHS = Array.from({ length: 10 }, (_, i) => `/avatars/avatar-${i + 1}.PNG`);
 const DEFAULT_CENTER = { lat: 37.5326, lng: 127.0246 };
 const GEOLOCATION_OPTIONS: PositionOptions = { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 };
+const MARKER_BASE_SIZE = 64;
+const MARKER_SELECTED_SIZE = 72;
+const MAP_MARKER_IMAGES: Record<AnimalTypeCode, { src: string; alt: string }> = {
+  1: { src: '/markers/marker-dog-outlined.png', alt: 'Dog shelter' },
+  2: { src: '/markers/marker-cat-outlined.png', alt: 'Cat shelter' },
+  3: { src: '/mixMarker.png', alt: 'Mixed shelter' },
+};
+
+const getShelterMarkerImage = (type: AnimalTypeCode, selected: boolean) => {
+  const size = selected ? MARKER_SELECTED_SIZE : MARKER_BASE_SIZE;
+  const config = MAP_MARKER_IMAGES[type];
+
+  return {
+    src: config.src,
+    size: { width: size, height: size },
+    options: {
+      alt: config.alt,
+      offset: { x: size / 2, y: size },
+    },
+  };
+};
 
 type ShelterRow = {
   id: number;
@@ -27,6 +47,7 @@ type ShelterRow = {
   phone_number: string | null;
   operating_hours: string | null;
   description: string | null;
+  image_urls?: string[] | null;
 };
 
 type ShelterRequestForm = {
@@ -131,17 +152,26 @@ export default function MapClient() {
 
   useEffect(() => {
     const fetchShelters = async () => {
-      const { data, error: queryError } = await supabase
-        .from('shelters')
-        .select('id, name, latitude, longitude, animal_type, address, phone_number, operating_hours, description')
-        .eq('use_yn', 'Y')
-        .eq('aprv_status', 'Y')
-        .or('del_yn.eq.N,del_yn.is.null')
-        .order('created_at', { ascending: false });
+      const selectShelters = (columns: string) =>
+        supabase
+          .from('shelters')
+          .select(columns)
+          .eq('use_yn', 'Y')
+          .eq('aprv_status', 'Y')
+          .or('del_yn.eq.N,del_yn.is.null')
+          .order('created_at', { ascending: false });
+
+      let { data, error: queryError } = await selectShelters('id, name, latitude, longitude, animal_type, address, phone_number, operating_hours, description, image_urls');
+
+      if (queryError && queryError.message.includes('image_urls')) {
+        const fallback = await selectShelters('id, name, latitude, longitude, animal_type, address, phone_number, operating_hours, description');
+        data = fallback.data;
+        queryError = fallback.error;
+      }
 
       if (queryError) return;
 
-      const mapped = ((data ?? []) as ShelterRow[])
+      const mapped = ((data ?? []) as unknown as ShelterRow[])
         .filter((row) => Number.isFinite(row.latitude) && Number.isFinite(row.longitude))
         .map((row) => ({
           id: row.id,
@@ -153,6 +183,7 @@ export default function MapClient() {
           phone: row.phone_number ?? '',
           hours: row.operating_hours ?? '',
           description: row.description ?? '',
+          imageUrls: row.image_urls ?? [],
           distanceKm: 0,
         }));
 
@@ -279,8 +310,40 @@ export default function MapClient() {
     else if (name !== 'applicantId') setShelterRequestForm((p) => ({ ...p, [name]: value }));
   };
 
+  const updateShelterRequestCoordinates = (address: string) => {
+    if (!window.kakao?.maps?.services) {
+      setShelterRequestErrorMessage('주소 좌표 변환을 준비하는 중입니다. 잠시 후 다시 시도해 주세요.');
+      return;
+    }
+
+    const geocoder = new window.kakao.maps.services.Geocoder();
+    geocoder.addressSearch(address, (result, status) => {
+      if (status !== window.kakao.maps.services.Status.OK || !result[0]) {
+        setShelterRequestForm((p) => ({ ...p, latitude: '', longitude: '' }));
+        setShelterRequestErrorMessage('주소를 좌표로 변환하지 못했습니다. 주소를 다시 검색하거나 직접 수정하기를 사용해 주세요.');
+        return;
+      }
+
+      setShelterRequestForm((p) => ({
+        ...p,
+        latitude: result[0].y,
+        longitude: result[0].x,
+      }));
+      setShelterRequestErrorMessage('');
+    });
+  };
+
   const handleCompletePostcode = (data: any) => {
-    setShelterRequestForm((p) => ({ ...p, address: data.address, sido: data.sido ?? '', sigungu: data.sigungu ?? '' }));
+    const nextAddress = data.address ?? '';
+    setShelterRequestForm((p) => ({
+      ...p,
+      address: nextAddress,
+      sido: data.sido ?? '',
+      sigungu: data.sigungu ?? '',
+      latitude: '',
+      longitude: '',
+    }));
+    updateShelterRequestCoordinates(nextAddress);
   };
 
   const closeShelterRequestModal = () => {
@@ -302,6 +365,13 @@ export default function MapClient() {
       return;
     }
 
+    const latitude = Number(shelterRequestForm.latitude);
+    const longitude = Number(shelterRequestForm.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setShelterRequestErrorMessage('주소 좌표 변환이 필요합니다. 주소 검색을 다시 실행하거나 직접 수정하기로 좌표를 입력해 주세요.');
+      return;
+    }
+
     setIsSubmittingShelterRequest(true);
     setShelterRequestErrorMessage('');
     try {
@@ -310,8 +380,8 @@ export default function MapClient() {
         address: `${shelterRequestForm.address} ${shelterRequestForm.addressDetail}`.trim(),
         sido: shelterRequestForm.sido || null,
         sigungu: shelterRequestForm.sigungu || null,
-        latitude: Number(shelterRequestForm.latitude),
-        longitude: Number(shelterRequestForm.longitude),
+        latitude,
+        longitude,
         phone_number: shelterRequestForm.phoneNumber.trim() || null,
         description: shelterRequestForm.description.trim() || null,
         link_url: shelterRequestForm.linkUrl.trim() || null,
@@ -365,16 +435,15 @@ export default function MapClient() {
                 const isSelected = selectedShelterId === s.id;
 
                 return (
-                  <CustomOverlayMap key={s.id} position={{ lat: s.lat, lng: s.lng }} yAnchor={1} zIndex={isSelected ? 10 : 1}>
-                    <button
-                      type="button"
-                      onClick={() => handleMoveToShelter(s.id)}
-                      aria-pressed={isSelected}
-                      className="cursor-pointer"
-                    >
-                      <MapCustomMarker type={s.type} selected={isSelected} />
-                    </button>
-                  </CustomOverlayMap>
+                  <MapMarker
+                    key={s.id}
+                    position={{ lat: s.lat, lng: s.lng }}
+                    image={getShelterMarkerImage(s.type, isSelected)}
+                    title={s.name}
+                    clickable
+                    zIndex={isSelected ? 10 : 1}
+                    onClick={() => handleMoveToShelter(s.id)}
+                  />
                 );
               })}
             </Map>
@@ -442,105 +511,19 @@ export default function MapClient() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
-            {selectedShelter ? (
-              <div className="-m-4 min-h-full bg-white">
-                <div className="sticky top-0 z-10 flex h-12 items-center justify-between border-b border-slate-200 bg-white px-3">
-                  <button
-                    type="button"
-                    onClick={handleBackToShelterList}
-                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                    목록
-                  </button>
-                  <span className="text-xs font-medium text-slate-400">상세정보</span>
-                </div>
+            <div className="space-y-3">
+              {listByCenter.map((shelter) => {
+                const isSelected = selectedShelterId === shelter.id;
 
-                <div className="space-y-5 px-5 py-5">
-                  <div className="space-y-3 border-b border-slate-100 pb-5">
-                    <h2 className="line-clamp-2 text-2xl font-bold leading-8 text-slate-950">{selectedShelter.name}</h2>
-                    <span
-                      className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${ANIMAL_BADGE_CLASS[selectedShelter.type]}`}
-                    >
-                      {ANIMAL_LABEL[selectedShelter.type]}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-4 gap-2">
-                    <a
-                      href={selectedShelter.phone ? `tel:${selectedShelter.phone}` : undefined}
-                      aria-disabled={!selectedShelter.phone}
-                      className={`flex flex-col items-center gap-1 rounded-xl border px-2 py-3 text-xs font-semibold ${
-                        selectedShelter.phone
-                          ? 'border-slate-200 text-slate-700 hover:bg-emerald-50'
-                          : 'pointer-events-none border-slate-100 text-slate-300'
-                      }`}
-                    >
-                      <Phone className="h-4 w-4 text-emerald-600" />
-                      전화
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => handleCopyAddress(selectedShelter)}
-                      disabled={!selectedShelter.address.trim()}
-                      className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 px-2 py-3 text-xs font-semibold text-slate-700 hover:bg-emerald-50 disabled:pointer-events-none disabled:border-slate-100 disabled:text-slate-300"
-                    >
-                      <Copy className="h-4 w-4 text-emerald-600" />
-                      {copiedShelterId === selectedShelter.id ? '복사됨' : '주소복사'}
-                    </button>
-                    <a
-                      href={selectedShelterKakaoSearchUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 px-2 py-3 text-xs font-semibold text-slate-700 hover:bg-emerald-50"
-                    >
-                      <ExternalLink className="h-4 w-4 text-emerald-600" />
-                      카카오맵
-                    </a>
-                    <a
-                      href={selectedShelterKakaoRouteUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 px-2 py-3 text-xs font-semibold text-slate-700 hover:bg-emerald-50"
-                    >
-                      <Navigation className="h-4 w-4 text-emerald-600" />
-                      길찾기
-                    </a>
-                  </div>
-
-                  <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
-                    <p className="flex items-start gap-3 px-4 py-3 text-sm text-slate-700">
-                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                      <span>{selectedShelter.address || '주소 정보 없음'}</span>
-                    </p>
-                    <p className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700">
-                      <Phone className="h-4 w-4 shrink-0 text-emerald-500" />
-                      {selectedShelter.phone || '-'}
-                    </p>
-                    <p className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700">
-                      <Clock className="h-4 w-4 shrink-0 text-emerald-500" />
-                      {selectedShelter.hours || '운영시간 정보 없음'}
-                    </p>
-                  </div>
-
-                  {selectedShelter.description.trim() ? (
-                    <section className="space-y-2">
-                      <h3 className="text-sm font-bold text-slate-900">소개</h3>
-                      <p className="whitespace-pre-wrap rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-                        {selectedShelter.description}
-                      </p>
-                    </section>
-                  ) : null}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {listByCenter.map((shelter) => (
+                return (
                   <button
                     key={shelter.id}
                     type="button"
                     onClick={() => handleMoveToShelter(shelter.id)}
-                    className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-emerald-200"
+                    aria-pressed={isSelected}
+                    className={`w-full rounded-2xl border bg-white p-4 text-left shadow-sm transition ${
+                      isSelected ? 'border-emerald-400 ring-2 ring-emerald-100' : 'border-slate-200 hover:border-emerald-200'
+                    }`}
                   >
                     <div className="mb-2 flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
@@ -560,11 +543,156 @@ export default function MapClient() {
                       <span className="line-clamp-1">{shelter.address || '주소 정보 없음'}</span>
                     </p>
                   </button>
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
           </div>
         </aside>
+
+        {selectedShelter ? (
+          <aside className="relative z-10 flex h-full w-[390px] shrink-0 flex-col border-r border-slate-200 bg-white shadow-2xl">
+            <div className="flex h-16 items-center justify-between border-b border-slate-200 px-4">
+              <button
+                type="button"
+                onClick={handleBackToShelterList}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-700 hover:bg-slate-100"
+                aria-label="목록으로 돌아가기"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={handleBackToShelterList}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-700 hover:bg-slate-100"
+                aria-label="상세 닫기"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-5">
+                <div className="space-y-5">
+                  <div className="space-y-3 border-b border-slate-100 pb-5">
+                    <h2 className="line-clamp-2 text-2xl font-bold leading-8 text-slate-950">{selectedShelter.name}</h2>
+                    <div className="flex items-center justify-between gap-3">
+                    <span
+                      className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${ANIMAL_BADGE_CLASS[selectedShelter.type]}`}
+                    >
+                      {ANIMAL_LABEL[selectedShelter.type]}
+                    </span>
+                    <span className="shrink-0 text-xs font-semibold text-emerald-700">
+                      중심에서 약 {selectedShelter.distanceKm.toFixed(1)}km
+                      </span>
+                    </div>
+                  </div>
+
+                  {selectedShelter.imageUrls?.length ? (
+                    <div className="space-y-2">
+                      <div className="relative h-52 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                        <img
+                          src={selectedShelter.imageUrls[0]}
+                          alt={selectedShelter.name}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                      {selectedShelter.imageUrls.length > 1 ? (
+                        <div className="grid h-20 grid-cols-4 gap-2">
+                          {selectedShelter.imageUrls.slice(1, 5).map((imageUrl, index) => (
+                            <div
+                              key={`${selectedShelter.id}-${imageUrl}`}
+                              className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+                            >
+                              <img
+                                src={imageUrl}
+                                alt={`${selectedShelter.name} ${index + 2}`}
+                                className="h-full w-full object-cover"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="flex h-36 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50">
+                      <Image
+                        src={MAP_MARKER_IMAGES[selectedShelter.type].src}
+                        alt={ANIMAL_LABEL[selectedShelter.type]}
+                        width={72}
+                        height={72}
+                        className="h-[72px] w-[72px] object-contain opacity-60"
+                      />
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-4 gap-2">
+                    <a
+                      href={selectedShelter.phone ? `tel:${selectedShelter.phone}` : undefined}
+                    aria-disabled={!selectedShelter.phone}
+                    className={`flex flex-col items-center gap-1 rounded-xl border px-2 py-3 text-xs font-semibold ${
+                      selectedShelter.phone
+                        ? 'border-slate-200 text-slate-700 hover:bg-emerald-50'
+                        : 'pointer-events-none border-slate-100 text-slate-300'
+                    }`}
+                  >
+                    <Phone className="h-4 w-4 text-emerald-600" />
+                    전화
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyAddress(selectedShelter)}
+                    disabled={!selectedShelter.address.trim()}
+                    className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 px-2 py-3 text-xs font-semibold text-slate-700 hover:bg-emerald-50 disabled:pointer-events-none disabled:border-slate-100 disabled:text-slate-300"
+                  >
+                    <Copy className="h-4 w-4 text-emerald-600" />
+                    {copiedShelterId === selectedShelter.id ? '복사됨' : '주소복사'}
+                  </button>
+                  <a
+                    href={selectedShelterKakaoSearchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 px-2 py-3 text-xs font-semibold text-slate-700 hover:bg-emerald-50"
+                  >
+                    <ExternalLink className="h-4 w-4 text-emerald-600" />
+                    카카오맵
+                  </a>
+                  <a
+                    href={selectedShelterKakaoRouteUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 px-2 py-3 text-xs font-semibold text-slate-700 hover:bg-emerald-50"
+                  >
+                    <Navigation className="h-4 w-4 text-emerald-600" />
+                    길찾기
+                  </a>
+                </div>
+
+                <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
+                  <p className="flex items-start gap-3 px-4 py-3 text-sm text-slate-700">
+                    <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                    <span>{selectedShelter.address || '주소 정보 없음'}</span>
+                  </p>
+                  <p className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700">
+                    <Phone className="h-4 w-4 shrink-0 text-emerald-500" />
+                    {selectedShelter.phone || '-'}
+                  </p>
+                  <p className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700">
+                    <Clock className="h-4 w-4 shrink-0 text-emerald-500" />
+                    {selectedShelter.hours || '운영시간 정보 없음'}
+                  </p>
+                </div>
+
+                {selectedShelter.description.trim() ? (
+                  <section className="space-y-2">
+                    <h3 className="text-sm font-bold text-slate-900">소개</h3>
+                    <p className="whitespace-pre-wrap rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+                      {selectedShelter.description}
+                    </p>
+                  </section>
+                ) : null}
+              </div>
+            </div>
+          </aside>
+        ) : null}
 
         <section className="relative h-full flex-1">
           <Map
@@ -583,16 +711,15 @@ export default function MapClient() {
               const isSelected = selectedShelterId === s.id;
 
               return (
-                <CustomOverlayMap key={`desktop-${s.id}`} position={{ lat: s.lat, lng: s.lng }} yAnchor={1} zIndex={isSelected ? 10 : 1}>
-                  <button
-                    type="button"
-                    onClick={() => handleMoveToShelter(s.id)}
-                    aria-pressed={isSelected}
-                    className="cursor-pointer"
-                  >
-                    <MapCustomMarker type={s.type} selected={isSelected} />
-                  </button>
-                </CustomOverlayMap>
+                <MapMarker
+                  key={`desktop-${s.id}`}
+                  position={{ lat: s.lat, lng: s.lng }}
+                  image={getShelterMarkerImage(s.type, isSelected)}
+                  title={s.name}
+                  clickable
+                  zIndex={isSelected ? 10 : 1}
+                  onClick={() => handleMoveToShelter(s.id)}
+                />
               );
             })}
           </Map>

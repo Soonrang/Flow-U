@@ -18,6 +18,7 @@ export interface ShelterListItem {
   phone: string;
   hours: string;
   description: string;
+  imageUrls?: string[];
   type: AnimalTypeCode;
   distanceKm: number;
 }
@@ -131,6 +132,34 @@ export default function MobileMapBottomSheet({
 
             <div className="flex-1 overflow-y-auto px-4 pb-8">
               <div className="space-y-4">
+                {selectedShelter.imageUrls?.length ? (
+                  <div className="space-y-2">
+                    <div className="relative h-44 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                      <img
+                        src={selectedShelter.imageUrls[0]}
+                        alt={selectedShelter.name}
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                    {selectedShelter.imageUrls.length > 1 ? (
+                      <div className="grid h-16 grid-cols-4 gap-2">
+                        {selectedShelter.imageUrls.slice(1, 5).map((imageUrl, index) => (
+                          <div
+                            key={`${selectedShelter.id}-${imageUrl}`}
+                            className="overflow-hidden rounded-xl border border-slate-200 bg-slate-100"
+                          >
+                            <img
+                              src={imageUrl}
+                              alt={`${selectedShelter.name} ${index + 2}`}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {selectedShelter.description.trim() ? (
                   <p className="whitespace-pre-wrap rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">
                     {selectedShelter.description}
