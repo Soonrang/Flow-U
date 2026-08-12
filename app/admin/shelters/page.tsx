@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, X, MapPin, Phone, Clock, User, Building2, HourglassIcon, Search, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, X, MapPin, Phone, Clock, User, Building2, HourglassIcon, Search, Pencil, Trash2, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { ShelterEditForm, type ShelterForEdit } from "@/components/admin/ShelterEditForm";
 import { Badge } from "@/components/ui/badge";
@@ -54,12 +54,21 @@ export default function AdminSheltersPage() {
   const [animalFilter, setAnimalFilter] = useState<AnimalFilter>("all");
   const [detailShelter, setDetailShelter] = useState<Shelter | null>(null);
   const [isEditShelter, setIsEditShelter] = useState(false);
+  const [isCreateShelter, setIsCreateShelter] = useState(false);
   /** 본문을 닫기 애니메이션 동안 유지하기 위해 `detailShelter`와 분리 */
   const [shelterDialogOpen, setShelterDialogOpen] = useState(false);
 
   const openShelterDetail = (row: Shelter) => {
     setDetailShelter(row);
     setIsEditShelter(false);
+    setIsCreateShelter(false);
+    setShelterDialogOpen(true);
+  };
+
+  const openShelterCreate = () => {
+    setDetailShelter(null);
+    setIsEditShelter(false);
+    setIsCreateShelter(true);
     setShelterDialogOpen(true);
   };
 
@@ -151,18 +160,22 @@ export default function AdminSheltersPage() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="mx-auto max-w-5xl space-y-5 p-4 md:space-y-6 md:p-6">
 
       {/* ① 페이지 헤더 */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => router.push("/")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <h1 className="text-lg font-semibold text-gray-800">관리자 페이지</h1>
+        <Button size="sm" className="ml-auto gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 max-sm:w-full" onClick={openShelterCreate}>
+          <Plus className="h-4 w-4" />
+          보호소 등록
+        </Button>
       </div>
 
       {/* ② Stats 카드 (아이콘 강화) */}
-      <div className="grid grid-cols-2 gap-4 max-w-md">
+      <div className="grid grid-cols-2 gap-3 md:max-w-md md:gap-4">
         <Card className="border-gray-100 shadow-none">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
@@ -221,24 +234,24 @@ export default function AdminSheltersPage() {
       ════════════════════════════════════ */}
       {activeTab === "shelters" && (
         <Card className="border-gray-100 shadow-none overflow-hidden">
-          <CardHeader className="px-5 py-4 border-b border-gray-100">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
+          <CardHeader className="border-b border-gray-100 px-4 py-4 md:px-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
               <CardTitle className="text-sm font-semibold text-gray-700">
                 등록된 보호소 목록
               </CardTitle>
 
               {/* ④ 검색 + 동물 유형 필터 */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="relative">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="relative w-full sm:w-auto">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
                   <Input
                     placeholder="보호소명, 주소 검색"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    className="pl-8 h-8 text-sm w-44 border-gray-200 focus-visible:ring-emerald-500"
+                    className="h-9 w-full border-gray-200 pl-8 text-sm focus-visible:ring-emerald-500 sm:h-8 sm:w-44"
                   />
                 </div>
-                <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+                <div className="flex w-full items-center gap-1 overflow-x-auto rounded-lg bg-gray-100 p-0.5 sm:w-auto">
                   {FILTER_OPTIONS.map(opt => (
                     <button
                       key={opt.value}
@@ -257,10 +270,63 @@ export default function AdminSheltersPage() {
             </div>
           </CardHeader>
 
-          <CardContent className="p-0 overflow-x-auto">
+          <CardContent className="p-0">
+            <div className="space-y-3 p-4 md:hidden">
+              {filteredApproved.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 py-10 text-center text-sm text-gray-400">
+                  {searchQuery || animalFilter !== "all" ? "검색 결과가 없습니다." : "등록된 보호소가 없습니다."}
+                </div>
+              ) : (
+                filteredApproved.map((shelter) => {
+                  const animalType = normalizeAnimalType(shelter.animal_type, shelter.id);
+                  return (
+                    <button
+                      key={shelter.id}
+                      type="button"
+                      onClick={() => openShelterDetail(shelter)}
+                      className="w-full rounded-2xl border border-gray-100 bg-white p-3 text-left shadow-sm transition active:scale-[0.99]"
+                    >
+                      <div className="flex gap-3">
+                        <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-gray-100 bg-gray-50">
+                          {shelter.image_urls?.[0] ? (
+                            <>
+                              <img src={shelter.image_urls[0]} alt="" className="h-full w-full object-cover" />
+                              {shelter.image_urls.length > 1 ? (
+                                <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                                  +{shelter.image_urls.length - 1}
+                                </span>
+                              ) : null}
+                            </>
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[11px] text-gray-400">
+                              없음
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="line-clamp-2 text-sm font-semibold text-gray-900">{shelter.name}</h3>
+                            <Badge variant="outline" className={`shrink-0 text-[11px] ${ANIMAL_BADGE_CLASS[animalType]}`}>
+                              {ANIMAL_LABEL[animalType]}
+                            </Badge>
+                          </div>
+                          <p className="mt-2 line-clamp-2 text-xs leading-5 text-gray-500">
+                            {shelter.address || [shelter.sido, shelter.sigungu].filter(Boolean).join(" ") || "주소 정보 없음"}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-400">{shelter.phone_number || "연락처 없음"}</p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="hidden overflow-x-auto md:block">
             <Table className="min-w-[600px]">
               <TableHeader>
                 <TableRow className="bg-gray-50/70 border-b border-gray-100">
+                  <TableHead className="w-16 text-xs font-medium text-gray-500">이미지</TableHead>
                   <TableHead className="text-xs text-gray-500 font-medium">보호소명</TableHead>
                   <TableHead className="text-xs text-gray-500 font-medium">유형</TableHead>
                   <TableHead className="text-xs text-gray-500 font-medium hidden sm:table-cell">주소</TableHead>
@@ -271,7 +337,7 @@ export default function AdminSheltersPage() {
               <TableBody>
                 {filteredApproved.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-24 text-center text-sm text-gray-400">
+                    <TableCell colSpan={6} className="h-24 text-center text-sm text-gray-400">
                       {searchQuery || animalFilter !== "all" ? "검색 결과가 없습니다." : "등록된 보호소가 없습니다."}
                     </TableCell>
                   </TableRow>
@@ -280,6 +346,27 @@ export default function AdminSheltersPage() {
                     const animalType = normalizeAnimalType(shelter.animal_type, shelter.id);
                     return (
                       <TableRow key={shelter.id} className="border-b border-gray-50 hover:bg-gray-50/60">
+                        <TableCell>
+                          {shelter.image_urls?.[0] ? (
+                            <button
+                              type="button"
+                              onClick={() => openShelterDetail(shelter)}
+                              className="relative block h-11 w-11 overflow-hidden rounded-lg border border-gray-100 bg-gray-50"
+                              aria-label={`${shelter.name} 이미지 보기`}
+                            >
+                              <img src={shelter.image_urls[0]} alt="" className="h-full w-full object-cover" />
+                              {shelter.image_urls.length > 1 ? (
+                                <span className="absolute bottom-0 right-0 rounded-tl bg-black/60 px-1 text-[10px] font-semibold text-white">
+                                  +{shelter.image_urls.length - 1}
+                                </span>
+                              ) : null}
+                            </button>
+                          ) : (
+                            <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 text-[10px] text-gray-400">
+                              없음
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <button
                             type="button"
@@ -309,6 +396,7 @@ export default function AdminSheltersPage() {
                 )}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -374,13 +462,22 @@ export default function AdminSheltersPage() {
                             {app.description}
                           </p>
                         )}
+                        {app.image_urls?.length ? (
+                          <div className="flex gap-2 overflow-x-auto pb-1">
+                            {app.image_urls.slice(0, 5).map((url, index) => (
+                              <div key={url} className="h-14 w-14 overflow-hidden rounded-lg border border-gray-100 bg-gray-50">
+                                <img src={url} alt={`신청 이미지 ${index + 1}`} className="h-full w-full object-cover" />
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
 
-                      <div className="flex sm:flex-col gap-2 shrink-0">
+                      <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0 sm:flex-col">
                         <Button
                           size="sm"
                           onClick={() => handleApprove(app.id)}
-                          className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white h-9"
+                          className="h-9 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
                         >
                           <Check className="h-3.5 w-3.5" /> 승인
                         </Button>
@@ -388,7 +485,7 @@ export default function AdminSheltersPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleReject(app.id)}
-                          className="gap-1.5 text-red-500 border-red-200 hover:bg-red-50 hover:text-red-600 h-9"
+                          className="h-9 gap-1.5 border-red-200 text-red-500 hover:bg-red-50 hover:text-red-600"
                         >
                           <X className="h-3.5 w-3.5" /> 거절
                         </Button>
@@ -409,17 +506,34 @@ export default function AdminSheltersPage() {
           if (!open) {
             setDetailShelter(null);
             setIsEditShelter(false);
+            setIsCreateShelter(false);
           }
         }}
       >
         <DialogContent
           className={
-            isEditShelter
-              ? "max-h-[min(92vh,720px)] overflow-y-auto rounded-2xl shadow-xl sm:max-w-lg md:max-w-xl"
-              : "max-h-[min(90vh,640px)] overflow-y-auto rounded-2xl shadow-xl sm:max-w-lg"
+            isEditShelter || isCreateShelter
+              ? "max-h-[calc(100dvh-24px)] w-[calc(100vw-24px)] overflow-y-auto rounded-2xl p-4 shadow-xl sm:max-h-[min(92vh,720px)] sm:max-w-lg sm:p-6 md:max-w-xl"
+              : "max-h-[calc(100dvh-24px)] w-[calc(100vw-24px)] overflow-y-auto rounded-2xl p-4 shadow-xl sm:max-h-[min(90vh,640px)] sm:max-w-lg sm:p-6"
           }
         >
-          {detailShelter && isEditShelter ? (
+          {isCreateShelter ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-lg">보호소 등록</DialogTitle>
+              </DialogHeader>
+              <ShelterEditForm
+                mode="create"
+                onSaved={() => {
+                  void fetchShelters();
+                  setShelterDialogOpen(false);
+                  setIsCreateShelter(false);
+                  toast.success("보호소가 등록되었습니다.");
+                }}
+                onCancel={() => setShelterDialogOpen(false)}
+              />
+            </>
+          ) : detailShelter && isEditShelter ? (
             <>
               <DialogHeader>
                 <DialogTitle className="text-lg">보호소 정보 수정</DialogTitle>
@@ -427,8 +541,10 @@ export default function AdminSheltersPage() {
               <ShelterEditForm
                 shelter={detailShelter}
                 onSaved={(updated) => {
+                  if (!updated) return;
                   setShelters((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
                   setDetailShelter(updated);
+                  void fetchShelters();
                   setIsEditShelter(false);
                   toast.success("저장되었습니다.");
                 }}
@@ -460,6 +576,23 @@ export default function AdminSheltersPage() {
               </DialogHeader>
 
               <div className="space-y-4 text-sm text-gray-600">
+                {detailShelter.image_urls && detailShelter.image_urls.length > 0 ? (
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                    {detailShelter.image_urls.slice(0, 5).map((url, index) => (
+                      <a
+                        key={url}
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="aspect-square overflow-hidden rounded-xl border border-gray-100 bg-gray-50"
+                        aria-label={`보호소 이미지 ${index + 1} 열기`}
+                      >
+                        <img src={url} alt={`보호소 이미지 ${index + 1}`} className="h-full w-full object-cover" />
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+
                 <div className="space-y-2 rounded-xl border border-gray-100 bg-gray-50/80 p-3">
                   <p className="flex items-start gap-2">
                     <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" aria-hidden />
